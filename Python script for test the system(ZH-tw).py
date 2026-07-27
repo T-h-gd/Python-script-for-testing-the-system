@@ -1,0 +1,126 @@
+#引入標準庫
+from time import sleep
+from platform import *
+from sys import *
+from socket import *
+from shutil import *
+from ctypes import *
+
+#根據系統載入按鍵模組
+if system().startswith("Win"):
+    import msvcrt
+else:
+    import termios
+    import tty
+    import select
+
+#Linux載入身份校驗介面
+if not system().startswith("Win"):
+    from os import geteuid
+
+#跨平台按鍵檢測
+class KBHit:
+    def __init__(self):
+        if not system().startswith("Win"):
+            self.fd = stdin.fileno()
+            self.old_settings = termios.tcgetattr(self.fd)
+
+    def kb_hit(self):
+        if system().startswith("Win"):
+            return msvcrt.kbhit()
+        try:
+            tty.setraw(stdin.fileno(), termios.TCSANOW)
+            readable, _, _ = select.select([stdin], [], [], 0)
+            return bool(readable)
+        finally:
+            termios.tcsetattr(self.fd, termios.TCSAFLUSH, self.old_settings)
+
+    def get_char(self):
+        if system().startswith("Win"):
+            return msvcrt.getch()
+        try:
+            tty.setraw(stdin.fileno(), termios.TCSANOW)
+            return stdin.read(1)
+        finally:
+            termios.tcsetattr(self.fd, termios.TCSAFLUSH, self.old_settings)
+
+    def restore_terminal(self):
+        if not system().startswith("Win"):
+            termios.tcsetattr(self.fd, termios.TCSAFLUSH, self.old_settings)
+
+kb = KBHit()
+
+#獲取區域網IP
+def get_lan_ip():
+    try:
+        s = socket(AF_INET, SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except PermissionError:
+        return "無法獲取IP"
+    except Exception:
+        return "IP讀取失敗"
+
+lan_ip = get_lan_ip()
+
+#獲取磁盤總大小
+def disk_info():
+    try:
+        path = "C:\\" if system().startswith("Win") else "/"
+        usage = disk_usage(path)
+        total_gb = usage.total // (1024 ** 3)
+        return total_gb
+    except PermissionError:
+        return "無磁碟讀取權限"
+    except Exception:
+        return "磁碟讀取失敗"
+
+#獲取用戶權限
+def privilege():
+    if system().startswith("Win"):
+        try:
+            return "administrator" if windll.shell32.IsUserAnAdmin() else "user"
+        except:
+            return "權限狀態獲取失敗"
+    else:
+        try:
+            return "root" if geteuid() == 0 else "普通使用者(非root)"
+        except:
+            return "權限讀取異常"
+
+if __name__ == "__main__":
+    print(f"你的系統是 {system()} {release()} {machine()}")
+    print(f"你的區域網IP：{lan_ip}")
+
+    disk_data = disk_info()
+    if system().startswith("Win"):
+        print(f"C盤總大小: {disk_data}GB")
+    else:
+        print(f"根目錄總大小: {disk_data}GB")
+
+    print(f"當前使用者身份：{privilege()}")
+    print("【提示】倒數計時期間按下鍵盤任意鍵可立刻結束程式\n")
+
+    timer = 10
+    exit_flag = False
+    remaining = timer
+    #改用細粒度輪詢，不用等整1秒才檢測按鍵
+    while remaining > 0 and not exit_flag:
+        print(f"\r{' ' * 60}\r剩餘{remaining}秒鐘自動結束", end="", flush=True)
+        for _ in range(10):
+            if kb.kb_hit():
+                kb.get_char()
+                exit_flag = True
+                break
+            sleep(0.1)
+        if not exit_flag:
+            remaining -= 1
+
+    kb.restore_terminal()
+    print("\r" + " " * 60, end="")
+    if exit_flag:
+        print("\n已按下按鍵，程式手動結束")
+    else:
+        print("\n倒數計時結束，程式正常結束")
